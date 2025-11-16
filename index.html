@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Anchor | Anchoring Your Digital World</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fc;
+        }
+        /* Custom Colors based on Logo */
+        .text-anchor-blue { color: #007bff; }
+        .bg-anchor-blue { background-color: #007bff; }
+        .bg-gradient-anchor {
+            background: linear-gradient(135deg, #007bff 0%, #00bcd4 100%);
+        }
+
+        /* --- Animations --- */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-page-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+        .nav-link.active {
+            border-bottom: 2px solid #00bcd4;
+            padding-bottom: 4px;
+            color: #00bcd4; /* Highlight active link */
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        /* Spinner styles */
+        .spinner {
+            border-color: rgba(0, 123, 255, 0.2);
+            border-top-color: #007bff;
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <!-- Header & Navigation -->
+    <header class="bg-white shadow-md sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <!-- Logo and Brand Name -->
+            <a href="#home" class="flex items-center space-x-3 transition duration-300 transform hover:scale-[1.02]">
+                <!-- Updated logo path with fallback placeholder -->
+                <img 
+                    src="/img/logo.png" 
+                    alt="Digital Anchor Logo" 
+                    class="h-10 w-10 rounded-full shadow-lg"
+                    onerror="this.onerror=null; this.src='https://placehold.co/40x40/007bff/ffffff?text=DA';" 
+                >
+                <h1 class="text-2xl font-bold text-anchor-blue">Digital Anchor</h1>
+            </a>
+            
+            <!-- Navigation Links -->
+            <nav id="main-nav" class="hidden md:flex space-x-8 font-medium">
+                <a href="#home" class="nav-link hover:text-cyan-500 transition duration-300" data-page="home">Home</a>
+                <a href="#services" class="nav-link hover:text-cyan-500 transition duration-300" data-page="services">Services</a>
+                <a href="#about" class="nav-link hover:text-cyan-500 transition duration-300" data-page="about">Why Us</a>
+                <a href="#contact" class="nav-link px-4 py-2 rounded-full bg-anchor-blue text-white hover:bg-blue-600 transition duration-300 shadow-lg" data-page="contact">Get Support</a>
+            </nav>
+
+            <!-- Mobile Menu Button (Simplified for demo) -->
+            <div class="md:hidden">
+                <a href="#contact" class="text-sm px-3 py-1 rounded-full bg-anchor-blue text-white">Support</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area (Dynamic Page Container) -->
+    <main id="page-container" class="min-h-screen"></main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-white py-8 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm">
+            <p>&copy; 2024 Digital Anchor. Anchoring Your Digital World.</p>
+            <div class="mt-2 space-x-4">
+                <a href="#privacy" class="hover:text-cyan-300 transition duration-300">Privacy Policy</a>
+                <a href="#terms" class="hover:text-cyan-300 transition duration-300">Terms of Service</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const PAGE_CONTAINER = document.getElementById('page-container');
+        const NAV_LINKS = document.querySelectorAll('.nav-link');
+        
+        // --- Gemini API Configuration and Utilities ---
+        const apiKey = ""; 
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        /**
+         * Fetches data from the Gemini API with exponential backoff for retries.
+         */
+        async function fetchWithBackoff(url, options, maxRetries = 5) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status === 429) {
+                        // Too Many Requests, calculate backoff delay
+                        const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                        console.warn(`429 Too Many Requests. Retrying in ${Math.round(delay / 1000)}s...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue; // Retry the request
+                    }
+                    if (!response.ok) {
+                        throw new Error(`API request failed with status: ${response.status}`);
+                    }
+                    return response.json();
+                } catch (error) {
+                    if (i === maxRetries - 1) {
+                        console.error("Gemini API call failed after max retries:", error);
+                        throw error;
+                    }
+                    // For other errors, log and retry immediately
+                    console.warn(`Attempt ${i + 1} failed. Retrying...`, error);
+                }
+            }
+        }
+
+        /**
+         * Sends a prompt to the Gemini API and handles the response.
+         */
+        async function getGeminiResponse(prompt, systemInstruction = null) {
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                tools: [{ "google_search": {} }], // Use Google Search for grounding
+            };
+            
+            if (systemInstruction) {
+                payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+            }
+
+            const options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            };
+
+            try {
+                const result = await fetchWithBackoff(API_URL, options);
+                
+                const candidate = result.candidates?.[0];
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    return candidate.content.parts[0].text;
+                } else {
+                    return "Error: Could not retrieve a valid response from the AI assistant.";
+                }
+            } catch (error) {
+                return "Error: Failed to connect to the AI service. Please try again later.";
+            }
+        }
+
+        // --- Content Templates ---
+
+        const renderHome = () => `
+            <!-- Hero Section -->
+            <section class="bg-gray-900 text-white pt-16 pb-24 animate-page-in">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                    <!-- Placeholder for the main logo -->
+                    <img 
+                        src="/img/logo.png" 
+                        alt="Digital Anchor Main Logo" 
+                        class="mx-auto mb-6 h-36 w-36 rounded-2xl shadow-2xl transition transform hover:scale-105 duration-500"
+                        onerror="this.onerror=null; this.src='https://placehold.co/150x150/007bff/ffffff?text=Digital+Anchor';"
+                    >
+                    
+                    <h2 class="text-5xl md:text-7xl font-extrabold tracking-tight mb-4 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+                        Digital Anchor
+                    </h2>
+                    <p class="text-xl md:text-2xl font-light mb-8 text-gray-300">
+                        Anchoring Your Digital World
+                    </p>
+                    <p class="max-w-3xl mx-auto text-lg mb-10 text-gray-300">
+                        From broken screens to complex software errors, we provide expert repair, installation, and troubleshooting for all your essential devices—laptops, smartphones, PCs, and gaming consoles (PS4/PS5).
+                    </p>
+                    <a href="#services" class="inline-block px-10 py-4 text-lg font-semibold rounded-full bg-gradient-anchor text-white shadow-xl hover:shadow-2xl transition duration-300 transform hover:translate-y-[-2px]">
+                        See Our Services
+                    </a>
+                </div>
+            </section>
+        `;
+
+        const renderServices = () => `
+            <!-- Services Section -->
+            <section class="py-20 bg-fuchsia-50 animate-page-in">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <h2 class="text-4xl font-bold text-center mb-4 text-anchor-blue">Expert Services</h2>
+                    <p class="text-center text-lg text-gray-600 mb-12">Reliable solutions for every digital device you own.</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-20">
+                        
+                        <!-- Service 1: Hardware Repair -->
+                        <div class="bg-white p-6 rounded-xl shadow-lg transition duration-300 border-t-4 border-anchor-blue card-hover">
+                            <div class="text-3xl text-anchor-blue mb-3">🛠️</div>
+                            <h3 class="text-xl font-semibold mb-2">Device Hardware Repair</h3>
+                            <p class="text-gray-600">Screen replacements, battery swaps, component-level motherboard repair for laptops, PCs, and smartphones.</p>
+                        </div>
+                        
+                        <!-- Service 2: Console Repair -->
+                        <div class="bg-white p-6 rounded-xl shadow-lg transition duration-300 border-t-4 border-anchor-blue card-hover">
+                            <div class="text-3xl text-anchor-blue mb-3">🎮</div>
+                            <h3 class="text-xl font-semibold mb-2">PS4/PS5 & Console Fixes</h3>
+                            <p class="text-gray-600">Fixing "Blue Light of Death," overheating issues, drive replacement, and power supply repairs for gaming consoles.</p>
+                        </div>
+
+                        <!-- Service 3: Software & OS -->
+                        <div class="bg-white p-6 rounded-xl shadow-lg transition duration-300 border-t-4 border-anchor-blue card-hover">
+                            <div class="text-3xl text-anchor-blue mb-3">💻</div>
+                            <h3 class="text-xl font-semibold mb-2">Software Installation & Setup</h3>
+                            <p class="text-gray-600">Operating System installation (Windows, macOS), driver updates, clean setups, and application configurations.</p>
+                        </div>
+
+                        <!-- Service 4: Troubleshooting -->
+                        <div class="bg-white p-6 rounded-xl shadow-lg transition duration-300 border-t-4 border-anchor-blue card-hover">
+                            <div class="text-3xl text-anchor-blue mb-3">🔍</div>
+                            <h3 class="text-xl font-semibold mb-2">Virus & System Troubleshooting</h3>
+                            <p class="text-gray-600">Malware removal, speed optimization, network troubleshooting, and resolving constant errors or crashes.</p>
+                        </div>
+
+                    </div>
+
+                    <!-- Gemini Feature 2: Repair Process Explanation -->
+                    <div class="bg-white p-8 rounded-xl shadow-2xl border border-gray-200">
+                        <h3 class="text-3xl font-bold mb-4 text-anchor-blue flex items-center">
+                            ✨ Repair Process Explained
+                        </h3>
+                        <p class="text-gray-600 mb-6">Enter a technical repair term or a complex issue (e.g., "motherboard short circuit," "Blue Light of Death," "iOS recovery loop") and we'll simplify the repair process for you.</p>
+
+                        <div class="flex flex-col md:flex-row gap-4 mb-4">
+                            <input type="text" id="repair-term-input" placeholder="e.g., PS5 HDMI Port Replacement" class="flex-grow rounded-lg border-gray-300 shadow-sm p-3 border transition duration-150">
+                            <button id="explain-process-button" class="w-full md:w-auto px-6 py-3 text-lg font-semibold rounded-lg bg-gradient-anchor text-white shadow-md hover:opacity-90 transition duration-300 transform hover:translate-y-[-1px]">
+                                Explain Process ✨
+                            </button>
+                        </div>
+                        
+                        <div id="repair-process-output" class="mt-6 p-4 bg-gray-100 rounded-lg text-gray-700 hidden">
+                            <h4 class="font-bold text-lg mb-2 text-anchor-blue">Simplified Process:</h4>
+                            <div id="process-content"></div>
+                        </div>
+                        <div id="process-loading-spinner" class="hidden text-center text-gray-500 p-4">
+                            <span class="animate-spin inline-block h-6 w-6 border-4 border-blue-500 border-t-transparent rounded-full spinner"></span>
+                            Diagnosing issue...
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+        `;
+
+        const renderAbout = () => `
+            <!-- Why Choose Us (About Section) -->
+            <section class="py-20 bg-gray-100 animate-page-in">
+                <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                    <h2 class="text-4xl font-bold mb-4 text-anchor-blue">The Digital Anchor Difference</h2>
+                    <p class="text-xl text-gray-600 mb-10">We don't just fix problems; we provide lasting stability.</p>
+
+                    <div class="space-y-12">
+                        
+                        <div class="flex flex-col md:flex-row items-center bg-white p-6 rounded-xl shadow-2xl transition duration-500 card-hover">
+                            <div class="md:w-1/4 text-5xl text-anchor-blue mb-4 md:mb-0">
+                                🔗
+                            </div>
+                            <div class="md:w-3/4 md:text-left text-center">
+                                <h3 class="text-2xl font-semibold mb-2">Unmatched Breadth of Expertise</h3>
+                                <p class="text-gray-700">From the latest gaming consoles to legacy business laptops, our team is equipped to handle the diverse digital devices you rely on daily, ensuring a single, reliable source for all your tech needs.</p>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col md:flex-row items-center bg-white p-6 rounded-xl shadow-2xl transition duration-500 card-hover">
+                            <div class="md:w-1/4 text-5xl text-anchor-blue mb-4 md:mb-0">
+                                ⏱️
+                            </div>
+                            <div class="md:w-3/4 md:text-left text-center">
+                                <h3 class="text-2xl font-semibold mb-2">Rapid, Reliable Service</h3>
+                                <p class="text-gray-700">We know downtime hurts. Our diagnostic process is swift, and our repair methods are systematic, aiming to restore functionality quickly while guaranteeing the quality of every replacement and installation.</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex flex-col md:flex-row items-center bg-white p-6 rounded-xl shadow-2xl transition duration-500 card-hover">
+                            <div class="md:w-1/4 text-5xl text-anchor-blue mb-4 md:mb-0">
+                                🛡️
+                            </div>
+                            <div class="md:w-3/4 md:text-left text-center">
+                                <h3 class="text-2xl font-semibold mb-2">Anchoring Your Security</h3>
+                                <p class="text-gray-700">Beyond repairs, we prioritize your data security, offering malware removal and system hardening to protect your digital life from future threats.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </section>
+        `;
+
+        const renderContact = () => `
+            <!-- Contact Section -->
+            <section class="py-20 bg-white animate-page-in">
+                <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <h2 class="text-4xl font-bold text-center mb-4 text-anchor-blue">Get Anchored. Get Fixed.</h2>
+                    <p class="text-center text-lg text-gray-600 mb-12">Need help immediately? Fill out the form below or contact us directly.</p>
+
+                    <!-- Gemini Feature 1: Instant Diagnosis -->
+                    <div class="bg-gray-100 p-8 rounded-xl shadow-2xl mb-8 border border-gray-200">
+                        <h3 class="text-3xl font-bold mb-4 text-anchor-blue flex items-center">
+                            ✨ Instant Tech Diagnosis
+                        </h3>
+                        <p class="text-gray-600 mb-6">Describe your device and problem to get an immediate AI-powered preliminary diagnosis and possible DIY solutions before contacting us.</p>
+                        
+                        <div class="space-y-4 mb-4">
+                            <input type="text" id="device-input" placeholder="Device (e.g., iPhone 13, Dell XPS, PS5)" class="block w-full rounded-lg border-gray-300 shadow-sm p-3 border transition duration-150">
+                            <textarea id="issue-description" rows="3" placeholder="Describe the issue in detail (e.g., 'My laptop turns on but the screen stays black and beeps 3 times.')" class="block w-full rounded-lg border-gray-300 shadow-sm p-3 border transition duration-150"></textarea>
+                        </div>
+
+                        <button id="run-diagnosis-button" class="w-full px-4 py-3 text-lg font-semibold rounded-lg bg-gradient-anchor text-white shadow-md hover:opacity-90 transition duration-300 transform hover:translate-y-[-1px]">
+                            Run AI Diagnosis ✨
+                        </button>
+                        
+                        <div id="diagnosis-loading-spinner" class="hidden text-center text-gray-500 p-4">
+                            <span class="animate-spin inline-block h-6 w-6 border-4 border-blue-500 border-t-transparent rounded-full spinner"></span>
+                            Analyzing the digital stream...
+                        </div>
+                        
+                        <div id="diagnosis-output" class="mt-6 p-4 bg-white rounded-lg shadow-inner text-gray-700 hidden">
+                            <h4 class="font-bold text-lg mb-2 text-anchor-blue">AI Report:</h4>
+                            <div id="diagnosis-content"></div>
+                        </div>
+                    </div>
+
+                    <!-- Original Contact Form / Direct Contact -->
+                    <div class="flex flex-col md:flex-row gap-8">
+                        
+                        <!-- Contact Form (Non-Functional for this example) -->
+                        <div class="md:w-2/3 bg-gray-50 p-8 rounded-xl shadow-lg border border-gray-200">
+                            <form action="#" method="POST" class="space-y-4">
+                                <div>
+                                    <label for="name" class="block text-sm font-medium text-gray-700">Your Name</label>
+                                    <input type="text" id="name" name="name" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 focus:ring-anchor-blue focus:border-anchor-blue border transition duration-150">
+                                </div>
+                                <div>
+                                    <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
+                                    <input type="email" id="email" name="email" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 focus:ring-anchor-blue focus:border-anchor-blue border transition duration-150">
+                                </div>
+                                <div>
+                                    <label for="device" class="block text-sm font-medium text-gray-700">Device Type (e.g., Laptop, PS5, Smartphone)</label>
+                                    <input type="text" id="device" name="device" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 focus:ring-anchor-blue focus:border-anchor-blue border transition duration-150">
+                                </div>
+                                <div>
+                                    <label for="message" class="block text-sm font-medium text-gray-700">Describe the Issue</label>
+                                    <textarea id="message" name="message" rows="4" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 focus:ring-anchor-blue focus:border-anchor-blue border transition duration-150"></textarea>
+                                </div>
+                                <button type="submit" class="w-full px-4 py-3 text-lg font-semibold rounded-lg bg-gradient-anchor text-white shadow-md hover:opacity-90 transition duration-300 transform hover:translate-y-[-1px]">
+                                    Submit Request
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Direct Contact Info -->
+                        <div class="md:w-1/3 bg-anchor-blue text-white p-8 rounded-xl shadow-lg flex flex-col justify-between">
+                            <div class="space-y-6">
+                                <h3 class="text-2xl font-bold mb-4">Direct Contact</h3>
+                                
+                                <div>
+                                    <p class="font-medium">Call Us:</p>
+                                    <a href="tel:5551234567" class="text-lg hover:underline transition duration-300">(555) 123-4567</a>
+                                </div>
+                                
+                                <div>
+                                    <p class="font-medium">Email:</p>
+                                    <a href="mailto:support@digitalanchor.com" class="text-lg hover:underline transition duration-300">support@digitalanchor.com</a>
+                                </div>
+                                
+                                <div>
+                                    <p class="font-medium">Hours:</p>
+                                    <p class="text-lg">Mon - Fri: 9:00 AM - 6:00 PM</p>
+                                    <p class="text-lg">Sat: 10:00 AM - 4:00 PM</p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </section>
+        `;
+        
+        const renderNotFound = () => `
+            <section class="py-32 text-center bg-white animate-page-in">
+                <h2 class="text-6xl font-extrabold text-red-500 mb-4">404</h2>
+                <p class="text-2xl font-semibold text-gray-700 mb-6">Page Not Found</p>
+                <p class="text-lg text-gray-500 mb-8">It looks like the digital stream got lost. Let's get you anchored back to safety.</p>
+                <a href="#home" class="inline-block px-8 py-3 text-lg font-semibold rounded-full bg-gradient-anchor text-white shadow-lg hover:shadow-xl transition duration-300">
+                    Go to Home
+                </a>
+            </section>
+        `;
+
+        // --- Routing Logic ---
+
+        const routes = {
+            '#home': renderHome,
+            '#services': renderServices,
+            '#about': renderAbout,
+            '#contact': renderContact,
+            '': renderHome // Default route
+        };
+
+        const router = () => {
+            // Get the current hash, default to '#home' if not set
+            const hash = window.location.hash || '#home';
+            const render = routes[hash] || renderNotFound;
+            
+            // Render the page content
+            PAGE_CONTAINER.innerHTML = render();
+            
+            // Reattach event listeners after rendering the new page
+            if (hash === '#contact') {
+                attachDiagnosisListener();
+            } else if (hash === '#services') {
+                attachExplanationListener();
+            }
+
+            // Update active state on navigation links
+            NAV_LINKS.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === hash) {
+                    link.classList.add('active');
+                }
+            });
+
+            // Ensure the direct 'Get Support' button is marked active
+            const contactButton = document.querySelector('[data-page="contact"]');
+            if (hash === '#contact') {
+                 // Check if it's the specific button, not the regular link
+                if (contactButton && !contactButton.classList.contains('active')) {
+                    contactButton.classList.add('active');
+                }
+            } else {
+                if (contactButton) {
+                    contactButton.classList.remove('active');
+                }
+            }
+        };
+
+
+        // --- Event Listener Functions ---
+        
+        function attachDiagnosisListener() {
+            const button = document.getElementById('run-diagnosis-button');
+            if (button) {
+                button.addEventListener('click', runInstantDiagnosis);
+            }
+        }
+        
+        function attachExplanationListener() {
+            const button = document.getElementById('explain-process-button');
+            if (button) {
+                button.addEventListener('click', runRepairProcessExplanation);
+            }
+        }
+
+        // --- Gemini Feature 1 Implementation: Instant Diagnosis ---
+
+        async function runInstantDiagnosis() {
+            const deviceInput = document.getElementById('device-input').value.trim();
+            const issueInput = document.getElementById('issue-description').value.trim();
+            const outputDiv = document.getElementById('diagnosis-output');
+            const contentDiv = document.getElementById('diagnosis-content');
+            const loadingSpinner = document.getElementById('diagnosis-loading-spinner');
+            
+            if (!deviceInput || !issueInput) {
+                contentDiv.innerHTML = '<p class="text-red-500 font-semibold">Please enter both the device type and a detailed issue description.</p>';
+                outputDiv.classList.remove('hidden');
+                return;
+            }
+            
+            outputDiv.classList.add('hidden');
+            loadingSpinner.classList.remove('hidden');
+
+            const prompt = `Device: ${deviceInput}. Issue: ${issueInput}.`;
+            const systemInstruction = `You are a preliminary tech support AI assistant for a repair company called Digital Anchor. Based on the provided device and issue, provide a concise, single-paragraph preliminary diagnosis, list 2-3 common causes, and suggest one simple, safe, non-invasive DIY troubleshooting step the user can try first. Format the output using bold markdown for titles (e.g., **Diagnosis:**, **Causes:**, **DIY Step:**). Do not offer professional repair quotes.`;
+
+            try {
+                const responseText = await getGeminiResponse(prompt, systemInstruction);
+                contentDiv.innerHTML = responseText.replace(/\n/g, '<br>'); // Convert newlines to breaks for HTML display
+                outputDiv.classList.remove('hidden');
+            } catch (error) {
+                contentDiv.innerHTML = `<p class="text-red-500">Failed to get diagnosis. Please check your connection or contact us directly.</p>`;
+                outputDiv.classList.remove('hidden');
+            } finally {
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+        
+        // --- Gemini Feature 2 Implementation: Repair Process Explanation ---
+
+        async function runRepairProcessExplanation() {
+            const termInput = document.getElementById('repair-term-input').value.trim();
+            const outputDiv = document.getElementById('repair-process-output');
+            const contentDiv = document.getElementById('process-content');
+            const loadingSpinner = document.getElementById('process-loading-spinner');
+
+            if (!termInput) {
+                contentDiv.innerHTML = '<p class="text-red-500 font-semibold">Please enter a technical term or repair process to explain.</p>';
+                outputDiv.classList.remove('hidden');
+                return;
+            }
+
+            outputDiv.classList.add('hidden');
+            loadingSpinner.classList.remove('hidden');
+
+            const prompt = `Explain the standard repair process for: ${termInput}.`;
+            const systemInstruction = `You are a tech education assistant for Digital Anchor. Explain the standard professional repair process for the given technical term or issue in a brief, easy-to-understand list of 3-5 steps. Focus on what happens during the service. Start with **Step 1: Diagnostic**.`;
+
+            try {
+                const responseText = await getGeminiResponse(prompt, systemInstruction);
+                // Convert Markdown list/text to HTML-friendly format
+                let formattedText = responseText.replace(/\n\*\*/g, '<br><br>**').replace(/\*\*/g, '<strong>').replace(/:\s*<br>/g, ':</strong><br>').replace(/\n/g, '<br>');
+                
+                contentDiv.innerHTML = formattedText;
+                outputDiv.classList.remove('hidden');
+            } catch (error) {
+                contentDiv.innerHTML = `<p class="text-red-500">Failed to get explanation. Please try again later.</p>`;
+                outputDiv.classList.remove('hidden');
+            } finally {
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+
+        // Listen for hash changes and initial load
+        window.addEventListener('hashchange', router);
+        window.addEventListener('load', router);
+    </script>
+</body>
+</html>
